@@ -215,12 +215,18 @@ boot <- function(d,quantiles = c(0.025,0.10),Nboot=1000){
 ##' @param boot (optional) list with bootstrap estimates as produced by boot()
 ##' @param Lvec (optional) vector with labels for each length group
 ##' @return nothing
-plot.gearcalibFit <- function(fit,select=c("relsel","density"),boot=NULL, Lvec=NULL, ymax=NULL){
+plot.gearcalibFit <- function(fit,
+                              select=c("relsel","density","spectrum"), 
+                              boot=NULL, 
+                              Lvec=NULL, 
+                              ymax=NULL,
+                              nStn=8){
   
   if(is.null(Lvec)) Lvec <- 1:(ncol(fit$d$N))
   Lmin <- min(Lvec)
   Lmax <- max(Lvec)
   
+  p1 = NULL;
   if("relsel" %in% select){
        # plot(range(Lvec),c(0,max(exp(est + sd %o% c(0,-2,2)))),type="n",
        #      ylim=c(0,2),
@@ -275,6 +281,7 @@ plot.gearcalibFit <- function(fit,select=c("relsel","density"),boot=NULL, Lvec=N
   }
        
 
+  p2 = NULL;
   if(!is.null(boot) && ("density" %in% select)){
   #     with(boot,{
   #     plot(Lvec,log10(1+Density1),
@@ -309,5 +316,71 @@ plot.gearcalibFit <- function(fit,select=c("relsel","density"),boot=NULL, Lvec=N
     print(p2);
   }
   
-  return(list(p1=p1,p2=p2));
+  p3 = NULL;
+  if("spectrum" %in% select){
+    ##--Plot size spectra for the stations with the nStn largest summed values
+    ###--row indices of associated group/gear combinations for fit$N rows and 
+    ###--gear-neutral spectra
+    dfrGG = tibble::tibble(group=fit$d$group,Gear=fit$d$Gear) |> 
+              dplyr::mutate(idx=dplyr::row_number()) |> 
+              tidyr::pivot_wider(names_from=Gear,values_from=idx) |> 
+              dplyr::mutate(idx=dplyr::row_number());
+    ###--extract estimated gear-neutral spectra
+    pl <- fit$obj$env$parList(); #--parlist
+    dfrSpec = tibble::as_tibble(pl$logspectrum);
+    names(dfrSpec) = as.character(Lvec);
+    dfrSpec = dplyr::bind_cols(dfrSpec,dfrGG) |> 
+                tidyr::pivot_longer(cols=1:length(Lvec),names_to="L",values_to="val");
+    ###--get totals by group and arrange in descending order
+    dfrSumSpec = dfrSpec |> dplyr::select(group,idx,L,val) |> 
+                   dplyr::group_by(group,idx) |> 
+                   dplyr::summarize(val=sum(val)) |> 
+                   dplyr::ungroup() |> 
+                   dplyr::arrange(dplyr::desc(val));
+    grps = as.character(dfrSumSpec$group[1:nStn]);#--indices for largest nStn summed spectra
+    #--extract residuals by group/gear 
+    dfrRes = tibble::as_tibble(pl$residual,.name_repair=NULL);
+    names(dfrRes) = as.character(Lvec);
+    dfrRes = dplyr::bind_cols(
+               dfrRes,
+               dfrGG |> tidyr::pivot_longer(cols=tidyr::any_of(levels(fit$d$Gear)),names_to="Gear",values_to="res_idx")
+             ) |> tidyr::pivot_longer(cols=1:length(Lvec),names_to="L",values_to="residual") |> 
+             dplyr::select(!res_idx) |> tidyr::pivot_wider(names_from="Gear",values_from="residual");
+    dfrT0 = dfrSpec |> dplyr::select(group,idx,L,base=val) |> 
+             dplyr::inner_join(dfrRes,by=c("group","idx","L")) |> 
+             dplyr::mutate(exp_base=exp(base)) |> 
+             tidyr::pivot_longer(cols=tidyr::any_of(levels(fit$d$Gear)),names_to="Gear",values_to="residual") |> 
+             dplyr::mutate(exp_resid=exp(base+residual));
+    dfrT1 = dplyr::bind_rows(
+              dfrT0 |> dplyr::select(group,L,value=exp_base) |> dplyr::distinct() |> dplyr::mutate(Gear="baseline"),
+              dfrT0 |> dplyr::select(group,L,Gear,value=exp_resid) 
+            ) |> dplyr::mutate(group=as.character(group),
+                               L=as.numeric(L));
+    gcs = c("black","blue","green");
+    names(gcs) = c("baseline",levels(fit$d$Gear));
+    # dfrSpec <- tibble::tibble(L=Lvec,
+    #                           y=exp(spec[ii,])*fit$d$SweptArea[ii,],
+    #                           y1=exp(spec[ii,] + res1[1,])*fit$d$SweptArea[ii,],
+    #                           y2=exp(spec[ii,] + res1[2,])*fit$d$SweptArea[ii,])
+    # p3 = ggplot(dfrSpec,aes(x=L,y=y)) + 
+    #       geom_line(aes(y=y,colour=names(gcs)[1])) + 
+    #       geom_point(aes(y=y1,colour=names(gcs)[2]),shape=21) + 
+    #       geom_point(aes(y=y2,colour=names(gcs)[3]),shape=22) + 
+    #       geom_line(aes(y=y1,colour=names(gcs)[2]),linetype=3) + 
+    #       geom_line(aes(y=y2,colour=names(gcs)[3]),linetype=3) + 
+    #       labs(x="Length (cm)",y="Size spectrum of population [#/cm]",
+    #           subtitle=paste("station",fit$d$group[ii])) + 
+    #        scale_color_manual(name="gear",
+    #                           breaks=names(gcs),
+    #                           values=gcs) +
+    #       wtsPlots::getStdTheme();
+    p3 = ggplot(dfrT1 |> dplyr::filter(group %in% grps),aes(x=L,y=value,colour=Gear)) + 
+          geom_line() + 
+          facet_grid(group~.,scales="free_y") + 
+          labs(x="size (mm CW)",y="Haul-level size spectrum") + 
+          wtsPlots::getStdTheme();
+    print(p3);    
+  }
+
+  return(list(p1=p1,p2=p2,p3=p3));
 }
