@@ -20,8 +20,9 @@ template<class Type>
 Type objective_function<Type>::operator() ()
 {
   /* Data and parameters */
-  DATA_ARRAY(N);                // haul x size
-  DATA_VECTOR(SweptArea);       // Sample area for each haul. length=nhaul
+  DATA_ARRAY(N);                // matrix (haul x size)
+//  DATA_VECTOR(SweptArea);       // Sample area for each haul. length=nhaul
+  DATA_ARRAY(SweptArea);        // Sample area/sampling_factor for each haul x size. 
   DATA_FACTOR(group);           // length(group)=nhaul. Defines pair ids
   DATA_FACTOR(Gear);            // length(Gear)=nhaul. Defines the two gear types
   DATA_SCALAR(huge);            // "Infinite" standard deviation on log scale
@@ -30,19 +31,20 @@ Type objective_function<Type>::operator() ()
   PARAMETER_ARRAY(logspectrum); // group x size. One spectrum for each pair id
   PARAMETER_ARRAY(nugget);      // haul x size. One nugget for each haul
   PARAMETER_ARRAY(residual);    // haul x size. One AR residual for each haul
-  PARAMETER_VECTOR(loggear);     // 1 x size
+  PARAMETER_VECTOR(loggear);    // 1 x size
   PARAMETER(logsd);             // sd of RW increments
   PARAMETER(phi);               // AR1(phi) contribution of residuals
   PARAMETER(logsdnug);          // sd of nugget effect
   PARAMETER(logsdres);          // sd of residuals
   PARAMETER(logsdGearRW);       // sd of increments in gear effect
-  PARAMETER(logalpha);             // Exponent on the effect of SweptArea
+  PARAMETER(logalpha);          // Exponent on the effect of SweptArea
 
   // Transpose for access by row:
   array<Type> tnugget=nugget.transpose();
   array<Type> tresidual=residual.transpose();
   array<Type> tlogspectrum=logspectrum.transpose();
-  array<Type> tN=N.transpose();
+  array<Type> tN =N.transpose();         // size x haul
+  array<Type> tSA=SweptArea.transpose(); // size x haul
 
   int nhaul=N.dim[0];
   int nsize=N.dim[1];
@@ -74,22 +76,22 @@ Type objective_function<Type>::operator() ()
 
   // Add data
   vector<Type> logintensity(nsize);
-  for(int i=0;i<nhaul;i++)
-    {
-      logintensity=
-	tlogspectrum.col(group[i])
-	+tresidual.col(i) 
-	+alpha*log(SweptArea(i))
-	+tnugget.col(i);
-      if(Gear(i)==1)
-	{
-	  logintensity += loggear;
-	}
-      else
-	logintensity -= loggear;
-      
-      ans-=dpois(vector<Type>(tN.col(i)),exp(logintensity),true).sum();
+  for(int i=0;i<nhaul;i++){
+    // logintensity = tlogspectrum.col(group[i]) + 
+    //                tresidual.col(i) + 
+    //                alpha*log(SweptArea(i)) + 
+    //                tnugget.col(i);
+    logintensity = tlogspectrum.col(group[i]) + 
+                   tresidual.col(i) + 
+                   alpha*log(tSA.col(i)) + 
+                   tnugget.col(i);
+    if(Gear(i)==1){
+      logintensity += loggear;
+    } else {
+      logintensity -= loggear;
     }
+    ans-= dpois(vector<Type>(tN.col(i)),exp(logintensity),true).sum();
+  }
 
   return ans;
 }
