@@ -22,7 +22,7 @@ check.gearcalib.data<-function(d){
 ##' .. content for \description{} (no empty lines) ..
 ##'
 ##' .. content for \details{} ..
-##' @title Fit relative catch efficiency by length group between to gears
+##' @title Fit relative catch efficiency by length group between two gears
 ##' @param d A list with four elements: N (matrix of integers), SweptArea(numeric vector), group(factor vector), and Gear(factor vector). 
 ##' @param fit0 If TRUE a Chisq-test of no size structure in gear effect is performed.
 ##' @return A list
